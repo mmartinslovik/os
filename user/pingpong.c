@@ -10,9 +10,10 @@ main(int argc, char *argv[])
 
   pipe(to_parent);
   pipe(to_child);
-
+  
+  // Check pipe creation status
   if(pipe(to_parent) == -1 || pipe(to_child) == -1){
-    fprintf(2, "error occured when creating pipe");
+    fprintf(2, "error occured when creating pipes\n");
     exit(-1);
   }
 
@@ -31,7 +32,9 @@ main(int argc, char *argv[])
     read(to_child[0], &received, 1);
     printf("%d: received ping\n", getpid());
     write(to_parent[1], "a", 1);
+
     close(to_parent[1]);
+    close(to_child[0]);
 
   } else {
     char received;
@@ -43,7 +46,9 @@ main(int argc, char *argv[])
     write(to_child[1], "a", 1);
     read(to_parent[0], &received, 1);
     printf("%d: received pong\n", getpid());
+
     close(to_parent[0]);
+    close(to_child[1]);
   }
 
   exit(0);
