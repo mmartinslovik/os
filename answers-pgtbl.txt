@@ -1,0 +1,8 @@
+1.
+
+
+2.
+page 0: contains text(programm code) and data 
+page 2: contains stack
+user cannot read/write page 1 because it contains guard page and user does not have access to this page
+page 509: contains implemented usyscall
