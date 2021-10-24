@@ -1,0 +1,20 @@
+1.
+Functions' arguments contain registers from a0 to a7, number 13 of printf
+function is saved in register a2.
+
+2.
+In the user/call.asm main calls f and f calls g.
+
+3.
+0x638
+
+4.
+0x38
+
+5.
+Output of the code is: He110 World
+Big endian: i=0x726c6400, value 57616 stays the same.
+
+6.
+Contens of register a2, because assembly states that as second argument of
+printf(). 
