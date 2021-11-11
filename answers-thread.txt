@@ -1,0 +1,2 @@
+When adding key/value pairs they acess table[i] at the same time
+which results in the loss of data
