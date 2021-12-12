@@ -5,6 +5,11 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "sleeplock.h"
+#include "file.h"
+#include "fcntl.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -431,4 +436,76 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+struct vma*
+find_empty_vma(struct proc *p)
+{
+  for(int i = 0; i < VMA_NUM; i++){
+    if(p->vma[i].f == 0){
+      return p->vma + i;
+    }
+  }
+  return 0;
+}
+
+struct vma*
+search_vma(struct proc *p, uint64 addr)
+{
+  for(int i = 0; i < VMA_NUM; i++){
+    if(p->vma[i].address <= addr && p->vma[i].end > addr){
+      return p->vma + i;
+    }
+  }
+  return 0;
+}
+
+int
+munmap(uint64 addr, int len)
+{
+  struct proc *p = myproc();
+  struct vma *vma = search_vma(p, PGROUNDDOWN(addr));
+
+  if(vma == 0)
+    return -1;
+
+  uint64 um_start, um_end;
+  um_start = PGROUNDDOWN(addr);
+  um_end = PGROUNDDOWN(addr + len);
+
+  // unmap and write back to f
+  uint64 sz = um_end - um_start;
+  int offset = 0;
+  for(int i  = 0; i < sz; i += PGSIZE){
+    if(walkaddr(p->pagetable, um_start + i)){
+      if(MAP_SHARED & vma->flags){
+	offset = PGROUNDDOWN(um_start + i) - vma->address + vma->offset;
+	begin_op();
+	ilock(vma->f->ip);
+	writei(vma->f->ip, 1, PGROUNDDOWN(um_start + i), offset, PGSIZE);
+	iunlock(vma->f->ip);
+	end_op();
+      }
+      uvmunmap(p->pagetable, PGROUNDDOWN(um_start + i), 1, 1);
+    }
+  }
+  
+  // three cases
+  if(um_start > vma->address){
+    // unmap pages from the end -> change length
+    vma->length -= um_end - um_start;
+    vma->end = um_start;
+  } else if(um_start < vma->end){
+    // unmap pages from the beginning -> change address
+    vma->length -= um_end - um_start;
+    vma->offset += um_end - um_start;
+    vma->address = um_end;
+  } else {
+    // unmap whole file
+    fileclose(vma->f);
+    vma->f = 0;
+    vma->length = 0;
+  }
+
+  return 0;
 }

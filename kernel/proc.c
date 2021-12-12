@@ -5,6 +5,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
+#include "fcntl.h"
 
 struct cpu cpus[NCPU];
 
@@ -140,7 +144,8 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-
+  
+  p->valid_end = MMAP;
   return p;
 }
 
@@ -303,6 +308,27 @@ fork(void)
 
   safestrcpy(np->name, p->name, sizeof(p->name));
 
+  struct vma *p_vma, *np_vma;
+  p_vma = 0;
+  np_vma = 0;
+
+  // copy vma array of parent to child process
+  memmove(&np->vma, &p->vma, sizeof(struct vma));
+  for(int i = 0; i < VMA_NUM; i++){
+    if(p->vma[i].f != 0){
+      p_vma = &p->vma[i];
+      for(int j = 0; j < VMA_NUM; j++){
+	if(np->vma[j].f == 0){
+	  np_vma = &np->vma[j];
+	  break;
+	}
+      }
+      // copy vma of parent to child process
+      if(np_vma > 0)
+	memmove(np_vma, p_vma, sizeof(struct vma));
+    }
+  }
+
   pid = np->pid;
 
   release(&np->lock);
@@ -352,6 +378,36 @@ exit(int status)
       p->ofile[fd] = 0;
     }
   }
+
+  struct vma *vma = 0;
+  uint64 start_addr;
+  int len, offset;
+
+  // unmap vmas
+  for(int i = 0; i < VMA_NUM; i++){
+    vma = &p->vma[i];
+    len = vma->length;
+    start_addr = vma->address;
+    for(int j = 0; j < len; j += PGSIZE){
+      if(walkaddr(p->pagetable, start_addr + j)){
+	if(MAP_SHARED & vma->flags){
+	  offset = PGROUNDDOWN(start_addr + j) - vma->address + vma->offset;
+	  begin_op();
+	  ilock(vma->f->ip);
+	  writei(vma->f->ip, 1, PGROUNDDOWN(start_addr + j), offset, PGSIZE);
+	  iunlock(vma->f->ip);
+	  end_op();
+	}
+	uvmunmap(p->pagetable, PGROUNDDOWN(start_addr + j), 1, 1);
+      }
+      vma->address += len;
+      vma->offset += len;
+      vma->length -= len;
+    }
+  }
+  
+  // update valid end back to MMAP
+  p->valid_end = MMAP;
 
   begin_op();
   iput(p->cwd);

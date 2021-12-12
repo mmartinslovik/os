@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "memlayout.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -483,4 +484,64 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+uint64
+sys_mmap(void)
+{
+  struct proc *p = myproc();
+  uint64 addr;
+  int length, flags, prot, fd, offset;
+
+  if(argaddr(0, &addr) == -1)
+    return -1;
+  if(argint(1, &length) == -1)
+    return -1;
+  if(argint(2, &prot) == -1)
+    return -1;
+  if(argint(3, &flags) == -1)
+    return -1;
+  if(argint(4, &fd) == -1)
+    return -1;
+  if(argint(5, &offset) == -1)
+    return -1;
+
+  if((flags & MAP_SHARED) && !p->ofile[fd]->writable && (prot & PROT_WRITE))
+    return -1;
+
+  struct vma *vma = find_empty_vma(p);
+  uint64 valid_end = p->valid_end;
+  uint64 vma_start = PGROUNDDOWN(valid_end - length);
+
+  if(vma == 0)
+    return -1;
+  
+  vma->address = vma_start;
+  vma->end = valid_end;
+  vma->prot = prot;
+  vma->length = length;
+  vma->flags = flags;
+  vma->offset = offset;
+
+  // set file then increase ref
+  struct file *f = p->ofile[fd];
+  vma->f = f;
+  filedup(vma->f);
+  
+  // update current valid end of process
+  p->valid_end = vma_start;
+
+  return vma->address;
+}
+
+uint64
+sys_munmap(void)
+{
+  uint64 addr;
+  int length;
+
+  if(argaddr(0, &addr) == -1 || argint(1, &length) == -1)
+    return -1;
+
+  return munmap(addr, length);
 }
